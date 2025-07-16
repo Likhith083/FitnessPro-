@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, RotateCcw, CheckCircle, X, Plus, Minus, Timer, Target, Dumbbell } from 'lucide-react';
+import { Play, Pause, RotateCcw, CheckCircle, X, Plus, Minus, Timer, Target, Dumbbell, Video, SkipForward, ChevronLeft, ChevronRight } from 'lucide-react';
 import WorkoutTimer from './WorkoutTimer';
+import ExerciseVideo from './ExerciseVideo';
 
 const WorkoutSession = ({ 
   exercise, 
   onComplete, 
   onCancel,
-  initialStats = null 
+  initialStats = null,
+  template = null,
+  currentExerciseIndex = 0,
+  onNextExercise = null,
+  onPreviousExercise = null
 }) => {
   const [currentSet, setCurrentSet] = useState(1);
   const [completedSets, setCompletedSets] = useState([]);
@@ -20,9 +25,12 @@ const WorkoutSession = ({
     }
   );
   const [notes, setNotes] = useState('');
+  const [showVideo, setShowVideo] = useState(false);
 
   const totalSets = currentStats.sets;
   const isWorkoutComplete = completedSets.length >= totalSets;
+  const isTemplateWorkout = template !== null;
+  const isLastExercise = isTemplateWorkout && currentExerciseIndex >= template.exercises.length - 1;
 
   const handleStartSet = () => {
     setIsActive(true);
@@ -59,15 +67,36 @@ const WorkoutSession = ({
     }
   };
 
-  const handleFinishWorkout = () => {
-    const workoutData = {
+  const handleFinishExercise = () => {
+    const exerciseData = {
       exercise: exercise,
       sets: completedSets,
       totalDuration: 0, // Will be calculated from timer
       completedAt: new Date().toISOString(),
       notes: notes
     };
-    onComplete(workoutData);
+
+    if (isTemplateWorkout && !isLastExercise) {
+      // Move to next exercise in template
+      onNextExercise?.(exerciseData);
+    } else {
+      // Complete the workout (single exercise or last exercise in template)
+      onComplete(exerciseData);
+    }
+  };
+
+  const handleSkipExercise = () => {
+    if (isTemplateWorkout && !isLastExercise) {
+      onNextExercise?.();
+    } else {
+      onComplete?.({
+        exercise: exercise,
+        sets: [],
+        totalDuration: 0,
+        completedAt: new Date().toISOString(),
+        notes: 'Skipped'
+      });
+    }
   };
 
   const handleCancelWorkout = () => {
@@ -83,12 +112,64 @@ const WorkoutSession = ({
     }));
   };
 
+  const toggleVideo = () => {
+    setShowVideo(!showVideo);
+  };
+
   return (
-    <div className="bg-gray-900 rounded-2xl p-6 border border-gray-700 max-w-2xl mx-auto">
-      {/* Header */}
+    <div className="bg-gray-900 rounded-2xl p-6 border border-gray-700 max-w-4xl mx-auto">
+      {/* Template Progress Header */}
+      {isTemplateWorkout && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-gray-200">{template.name}</h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onPreviousExercise}
+                disabled={currentExerciseIndex === 0}
+                className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <span className="text-sm text-gray-400">
+                Exercise {currentExerciseIndex + 1} of {template.exercises.length}
+              </span>
+              <button
+                onClick={() => onNextExercise?.()}
+                disabled={isLastExercise}
+                className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+          </div>
+          
+          {/* Template Progress Bar */}
+          <div className="w-full bg-gray-700 rounded-full h-2">
+            <div 
+              className="bg-cyan-500 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${((currentExerciseIndex + 1) / template.exercises.length) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Exercise Header */}
       <div className="text-center mb-6">
         <h2 className="text-2xl font-bold text-white mb-2">{exercise?.name}</h2>
         <p className="text-gray-400">Set {currentSet} of {totalSets}</p>
+        {exercise?.muscleGroups && (
+          <p className="text-sm text-gray-500 mt-1">{exercise.muscleGroups.join(', ')}</p>
+        )}
+      </div>
+
+      {/* Video Section */}
+      <div className="mb-6">
+        <ExerciseVideo 
+          exercise={exercise}
+          isVisible={showVideo}
+          onToggle={toggleVideo}
+        />
       </div>
 
       {/* Progress Indicator */}
@@ -213,13 +294,24 @@ const WorkoutSession = ({
           </>
         ) : (
           <button
-            onClick={handleFinishWorkout}
+            onClick={handleFinishExercise}
             className="flex-1 bg-cyan-500 text-white py-3 px-6 rounded-lg hover:bg-cyan-600 transition-colors flex items-center justify-center gap-2"
           >
             <CheckCircle size={20} />
-            Finish Workout
+            {isTemplateWorkout && !isLastExercise ? 'Next Exercise' : 'Finish Workout'}
           </button>
         )}
+        
+        {isTemplateWorkout && (
+          <button
+            onClick={handleSkipExercise}
+            className="bg-yellow-500 text-white py-3 px-6 rounded-lg hover:bg-yellow-600 transition-colors flex items-center justify-center gap-2"
+          >
+            <SkipForward size={20} />
+            Skip Exercise
+          </button>
+        )}
+        
         <button
           onClick={handleCancelWorkout}
           className="bg-red-500 text-white py-3 px-6 rounded-lg hover:bg-red-600 transition-colors flex items-center justify-center gap-2"

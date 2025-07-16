@@ -52,7 +52,7 @@ export const DEFAULT_EXERCISES = [
       'Don\'t bounce the bar off your chest',
       'Maintain proper form and breathing'
     ],
-    videoUrl: null,
+    videoUrl: null, // Ready for video upload
     defaultSets: 3,
     defaultReps: 8,
     defaultWeight: 135

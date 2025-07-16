@@ -39,6 +39,11 @@ export default function App() {
   const [selectedDifficulty, setSelectedDifficulty] = useState('all');
   const [showBodyMeasurements, setShowBodyMeasurements] = useState(false);
   const [showWorkoutTemplates, setShowWorkoutTemplates] = useState(false);
+  
+  // Template workout states
+  const [currentTemplate, setCurrentTemplate] = useState(null);
+  const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
+  const [templateWorkoutHistory, setTemplateWorkoutHistory] = useState([]);
 
   // Theme switching effect
   useEffect(() => {
@@ -82,11 +87,59 @@ export default function App() {
   };
 
   const handleStartTemplate = (template) => {
-    // For now, start with the first exercise in the template
-    if (template.exercises.length > 0) {
-      setCurrentWorkoutExercise(template.exercises[0].exercise);
-      setIsInWorkoutSession(true);
+    // Start template workout
+    setCurrentTemplate(template);
+    setCurrentExerciseIndex(0);
+    setTemplateWorkoutHistory([]);
+    setCurrentWorkoutExercise(template.exercises[0].exercise);
+    setIsInWorkoutSession(true);
+  };
+
+  const handleNextExercise = (exerciseData = null) => {
+    if (exerciseData) {
+      // Save completed exercise data
+      setTemplateWorkoutHistory(prev => [...prev, exerciseData]);
     }
+    
+    const nextIndex = currentExerciseIndex + 1;
+    if (nextIndex < currentTemplate.exercises.length) {
+      setCurrentExerciseIndex(nextIndex);
+      setCurrentWorkoutExercise(currentTemplate.exercises[nextIndex].exercise);
+    } else {
+      // Template workout completed
+      handleCompleteTemplateWorkout();
+    }
+  };
+
+  const handlePreviousExercise = () => {
+    if (currentExerciseIndex > 0) {
+      const prevIndex = currentExerciseIndex - 1;
+      setCurrentExerciseIndex(prevIndex);
+      setCurrentWorkoutExercise(currentTemplate.exercises[prevIndex].exercise);
+    }
+  };
+
+  const handleCompleteTemplateWorkout = () => {
+    // Combine all exercise data into one workout record
+    const templateWorkout = {
+      id: Date.now(),
+      date: new Date().toISOString(),
+      template: currentTemplate,
+      exercises: templateWorkoutHistory,
+      totalDuration: templateWorkoutHistory.reduce((sum, ex) => sum + (ex.totalDuration || 0), 0),
+      completedAt: new Date().toISOString()
+    };
+    
+    const updatedHistory = [...workoutHistory, templateWorkout];
+    setWorkoutHistory(updatedHistory);
+    saveToStorage(STORAGE_KEYS.WORKOUT_HISTORY, updatedHistory);
+    
+    // Reset template states
+    setIsInWorkoutSession(false);
+    setCurrentWorkoutExercise(null);
+    setCurrentTemplate(null);
+    setCurrentExerciseIndex(0);
+    setTemplateWorkoutHistory([]);
   };
 
   const handleCompleteWorkout = (workoutData) => {
@@ -112,6 +165,9 @@ export default function App() {
   const handleCancelWorkout = () => {
     setIsInWorkoutSession(false);
     setCurrentWorkoutExercise(null);
+    setCurrentTemplate(null);
+    setCurrentExerciseIndex(0);
+    setTemplateWorkoutHistory([]);
   };
 
   // Enhanced data persistence
@@ -170,9 +226,13 @@ export default function App() {
       return (
         <WorkoutSession
           exercise={currentWorkoutExercise}
-          onComplete={handleCompleteWorkout}
+          onComplete={currentTemplate ? handleCompleteTemplateWorkout : handleCompleteWorkout}
           onCancel={handleCancelWorkout}
           initialStats={workoutStats}
+          template={currentTemplate}
+          currentExerciseIndex={currentExerciseIndex}
+          onNextExercise={handleNextExercise}
+          onPreviousExercise={handlePreviousExercise}
         />
       );
     }
@@ -189,7 +249,15 @@ export default function App() {
         
         // Calculate total volume from sets data
         const totalVolume = workoutHistory.reduce((sum, w) => {
-          if (w.sets && Array.isArray(w.sets)) {
+          if (w.template) {
+            // Template workout - sum all exercises
+            return sum + w.exercises.reduce((exerciseSum, exercise) => {
+              if (exercise.sets && Array.isArray(exercise.sets)) {
+                return exerciseSum + exercise.sets.reduce((setSum, set) => setSum + (set.weight || 0) * (set.reps || 0), 0);
+              }
+              return exerciseSum + (exercise.stats?.weight || 0) * (exercise.stats?.reps || 0) * (exercise.stats?.sets || 0);
+            }, 0);
+          } else if (w.sets && Array.isArray(w.sets)) {
             return sum + w.sets.reduce((setSum, set) => setSum + (set.weight || 0) * (set.reps || 0), 0);
           }
           return sum + (w.stats?.weight || 0) * (w.stats?.reps || 0) * (w.stats?.sets || 0);
@@ -276,7 +344,19 @@ export default function App() {
                         <h3 className="font-semibold text-cyan-400">{w.exercise?.name || 'Workout'}</h3>
                         <span className="text-sm text-gray-400">{new Date(w.date).toLocaleDateString()}</span>
                       </div>
-                      {w.sets && Array.isArray(w.sets) ? (
+                      {w.template ? (
+                        <div className="space-y-1">
+                          <p className="text-sm text-gray-400">{w.template.name} - {w.exercises.length} exercises</p>
+                          <p className="text-sm text-gray-400">
+                            Total: {w.exercises.reduce((sum, exercise) => {
+                              if (exercise.sets && Array.isArray(exercise.sets)) {
+                                return sum + exercise.sets.reduce((setSum, set) => setSum + (set.weight || 0) * (set.reps || 0), 0);
+                              }
+                              return sum + (exercise.stats?.weight || 0) * (exercise.stats?.reps || 0) * (exercise.stats?.sets || 0);
+                            }, 0)} lbs volume
+                          </p>
+                        </div>
+                      ) : w.sets && Array.isArray(w.sets) ? (
                         <div className="space-y-1">
                           <p className="text-sm text-gray-400">{w.sets.length} sets completed</p>
                           <p className="text-sm text-gray-400">
@@ -431,7 +511,14 @@ export default function App() {
         const progressStats = {
           totalWorkouts: workoutHistory.length,
           totalVolume: workoutHistory.reduce((sum, w) => {
-            if (w.sets && Array.isArray(w.sets)) {
+            if (w.template) {
+              return sum + w.exercises.reduce((exerciseSum, exercise) => {
+                if (exercise.sets && Array.isArray(exercise.sets)) {
+                  return exerciseSum + exercise.sets.reduce((setSum, set) => setSum + (set.weight || 0) * (set.reps || 0), 0);
+                }
+                return exerciseSum + (exercise.stats?.weight || 0) * (exercise.stats?.reps || 0) * (exercise.stats?.sets || 0);
+              }, 0);
+            } else if (w.sets && Array.isArray(w.sets)) {
               return sum + w.sets.reduce((setSum, set) => setSum + (set.weight || 0) * (set.reps || 0), 0);
             }
             return sum + (w.stats?.weight || 0) * (w.stats?.reps || 0) * (w.stats?.sets || 0);
